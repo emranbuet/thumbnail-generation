@@ -1,0 +1,3 @@
+.env
+output/
+.claude/scheduled_tasks.lock
