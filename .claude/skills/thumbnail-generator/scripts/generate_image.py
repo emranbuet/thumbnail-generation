@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Call OpenAI's gpt-image-1 edit endpoint to generate or revise a YouTube
+"""Call OpenAI's gpt-image-2.5 edit endpoint to generate or revise a YouTube
 thumbnail, compositing a reference face photo into the scene.
 
 Uses only the Python standard library (no pip install required).
@@ -9,12 +9,38 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 import uuid
 
 API_URL = "https://api.openai.com/v1/images/edits"
+DEFAULT_MODEL = "gpt-image-2.5-sunburst"
+
+# gpt-image-2.5 custom-size constraints (per OpenAI's image generation guide):
+# width/height must be multiples of 16, aspect ratio between 1:3 and 3:1,
+# neither edge over 3840px, and total pixels between 655,360 and 8,294,400.
+SIZE_RE = re.compile(r"^(\d+)x(\d+)$")
+
+
+def validate_size(size):
+    if size == "auto":
+        return size
+    m = SIZE_RE.match(size)
+    if not m:
+        sys.exit(f"ERROR: --size must be 'WIDTHxHEIGHT' or 'auto', got: {size}")
+    w, h = int(m.group(1)), int(m.group(2))
+    if w % 16 or h % 16:
+        sys.exit(f"ERROR: --size width and height must be multiples of 16, got: {size}")
+    if max(w, h) > 3840:
+        sys.exit(f"ERROR: --size edges must not exceed 3840px, got: {size}")
+    if not (1 / 3 <= w / h <= 3):
+        sys.exit(f"ERROR: --size aspect ratio must be between 1:3 and 3:1, got: {size}")
+    total = w * h
+    if not (655360 <= total <= 8294400):
+        sys.exit(f"ERROR: --size total pixels must be 655,360-8,294,400, got: {size} ({total})")
+    return size
 
 
 def load_api_key(env_file):
@@ -65,9 +91,11 @@ def main():
     p.add_argument("--previous", help="Path to the previous thumbnail (for revision passes)")
     p.add_argument("--prompt", required=True, help="Image generation / edit instructions")
     p.add_argument("--out", required=True, help="Where to write the resulting PNG")
-    p.add_argument("--size", default="1536x1024", choices=["1024x1024", "1024x1536", "1536x1024", "auto"])
+    p.add_argument("--size", default="2560x1440", help="WIDTHxHEIGHT (multiples of 16) or 'auto'")
+    p.add_argument("--model", default=DEFAULT_MODEL, help="Image model to use")
     p.add_argument("--env-file", default=".env", help="Path to a .env file holding OPENAI_API_KEY")
     args = p.parse_args()
+    args.size = validate_size(args.size)
 
     api_key = load_api_key(args.env_file)
     if not api_key:
@@ -85,7 +113,7 @@ def main():
         images.append(("image[]", args.previous))
 
     fields = [
-        ("model", "gpt-image-1"),
+        ("model", args.model),
         ("prompt", args.prompt),
         ("size", args.size),
         ("n", "1"),

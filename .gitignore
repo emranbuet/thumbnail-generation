@@ -1,3 +1,16 @@
 .env
-output/
+.DS_Store
 .claude/scheduled_tasks.lock
+__pycache__/
+sample_thumbnail.jpg
+
+# Keep these folders in the repo but empty - personal script/photo/generated
+# thumbnails should never be pushed to GitHub.
+script/*
+!script/.gitkeep
+
+face/*
+!face/.gitkeep
+
+output/*
+!output/.gitkeep
