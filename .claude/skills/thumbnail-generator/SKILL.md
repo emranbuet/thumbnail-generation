@@ -1,6 +1,6 @@
 ---
 name: thumbnail-generator
-description: Generate a YouTube thumbnail from a video script and a headshot photo. Reads the newest file in script/, applies thumbnail_brief_prompt.md to extract a thumbnail brief, generates an image with OpenAI gpt-image-2.5 compositing the newest face in face/, saves versioned results to output/, and interactively revises based on user feedback. Use when the user wants a thumbnail made or revised for a video in this project.
+description: Generate a YouTube thumbnail from a video script and a headshot photo. Reads the newest .txt/.md in script/ (skipping .gitkeep/junk), applies thumbnail_brief_prompt.md to extract a thumbnail brief, generates an image with OpenAI gpt-image-2.5 compositing the newest face image in face/, saves versioned results to output/ using max thumbnail_vN suffix, and interactively revises based on user feedback. Use when the user wants a thumbnail made or revised for a video in this project.
 ---
 
 # Thumbnail Generator
@@ -14,12 +14,28 @@ this `.claude/` folder).
 
 Before doing anything, verify:
 
-1. `script/` contains at least one file. Pick the **most recently modified** one:
-   `ls -t script/ | head -1`. If empty, stop and tell the user to drop their video
-   script (.txt/.md) into `script/`.
-2. `face/` contains at least one image file. Pick the **most recently modified** one
-   the same way: `ls -t face/ | head -1`. If empty, stop and tell the user to drop a
-   headshot photo into `face/`.
+1. `script/` contains at least one **script** file (`.txt` or `.md` only). Pick the
+   **most recently modified** matching file — never `.gitkeep`, dotfiles, or other
+   junk. Prefer the helper (stdlib-only):
+
+   ```bash
+   python3 .claude/skills/thumbnail-generator/scripts/generate_image.py --pick-script
+   ```
+
+   Equivalent manual check: newest among `script/*.txt` / `script/*.md` by mtime,
+   excluding `.gitkeep`. If none, stop and tell the user to drop their video script
+   (`.txt`/`.md`) into `script/`.
+
+2. `face/` contains at least one **image** file (common extensions: `.jpg`, `.jpeg`,
+   `.png`, `.webp`, `.gif`, `.bmp`, `.tif`, `.tiff` — case-insensitive). Pick the
+   **most recently modified** matching file — never `.gitkeep` or junk:
+
+   ```bash
+   python3 .claude/skills/thumbnail-generator/scripts/generate_image.py --pick-face
+   ```
+
+   If none, stop and tell the user to drop a headshot photo into `face/`.
+
 3. An OpenAI API key is available: either the `OPENAI_API_KEY` env var is set, or a
    `.env` file at the project root has a line `OPENAI_API_KEY=sk-...`. If neither
    exists, stop and ask the user to create `.env` (from `.env.example`) with their key.
@@ -81,12 +97,32 @@ you're about to send, and wait for an explicit "yes" before proceeding to Step 3
 Never call `generate_image.py` without that explicit go-ahead — this applies to
 every single generation, including every revision round, not just the first one.**
 
+Optional sanity check before spending credits (no API call):
+
+```bash
+python3 .claude/skills/thumbnail-generator/scripts/generate_image.py \
+  --dry-run \
+  --face "face/<picked face file>" \
+  --prompt "<prompt from Step 2>" \
+  --out "output/thumbnail_v<N>.png"
+```
+
+This prints the request shape (model, size, field names) without calling the API.
+
 ## Step 3 — Generate the image
 
 Only do this after the user has explicitly said yes to the prompt from Step 2.
 
-Determine the next version number by counting existing `output/thumbnail_v*.png`
-files (`ls output/thumbnail_v*.png 2>/dev/null | wc -l`); next version = count + 1.
+Determine the next version number from the **maximum numeric suffix** among existing
+`output/thumbnail_vN.png` files — **not** from file count (gaps must not reuse an
+older N). Prefer:
+
+```bash
+python3 .claude/skills/thumbnail-generator/scripts/generate_image.py --next-version
+```
+
+That prints the next `N` (1 if none exist). Example: if `thumbnail_v1.png` and
+`thumbnail_v3.png` exist, next is `4`, not `3`.
 
 Run:
 
@@ -101,6 +137,10 @@ This generates natively at 2560x1440 (16:9) — no cropping needed. If the resul
 doesn't match what was asked (wrong layout, cut-off text, etc.), that means the
 prompt needs tightening, not that a crop step is missing.
 
+If the script exits because the API response lacks `b64_json`, read the error
+(it lists present fields / a body preview) and fix auth, model access, or response
+format — do not invent a thumbnail file.
+
 Tell the user the thumbnail is ready at `output/thumbnail_v<N>.png`.
 
 ## Step 4 — Interactive revision loop
@@ -113,7 +153,8 @@ Ask the user if they'd like changes. If they give feedback:
 2. Show the user the exact revision prompt and parameters, and **wait for an
    explicit "yes"** — same rule as Step 2, every round.
 3. Once confirmed, run the same script, passing **both** the face image and the
-   previous version as inputs, and bump the version number:
+   previous version as inputs, and bump the version number via `--next-version`
+   again (always max suffix + 1):
 
 ```bash
 python3 .claude/skills/thumbnail-generator/scripts/generate_image.py \
@@ -131,6 +172,8 @@ python3 .claude/skills/thumbnail-generator/scripts/generate_image.py \
 
 - `generate_image.py` uses only the Python standard library — no `pip install`
   needed.
+- Offline checks: `python3 .../generate_image.py --self-test` (no network).
+- Dry-run: `--dry-run` prints model/size/field names without calling the API.
 - If the API call fails with an auth error, double-check `.env` or the
   `OPENAI_API_KEY` env var. If it fails because the account isn't verified for
   GPT Image models, tell the user they need to complete OpenAI's organization

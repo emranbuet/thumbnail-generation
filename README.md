@@ -41,7 +41,8 @@ composite your face into a scene, then iterates on it based on your feedback.
 ## Usage
 
 1. Drop your full video script (`.txt` or `.md`) into [script/](script/).
-2. Drop a headshot photo (`.jpg`/`.png`) into [face/](face/).
+2. Drop a headshot photo (`.jpg`/`.jpeg`/`.png`/`.webp`/… common image types)
+   into [face/](face/).
 3. In Claude Code, run the skill:
    ```
    /thumbnail-generator
@@ -53,20 +54,54 @@ composite your face into a scene, then iterates on it based on your feedback.
    `thumbnail_v2.png`, `v3.png`, etc. — nothing gets overwritten, so you can
    always go back to an earlier version.
 
-If you have multiple files in `script/` or `face/`, the skill always picks the
-most recently modified one.
+### How files are picked and versioned
+
+- **Script:** newest `.txt`/`.md` in `script/` by modification time. `.gitkeep`,
+  other dotfiles, and non-script junk are ignored.
+- **Face:** newest image in `face/` among common image extensions (case-
+  insensitive). `.gitkeep` and junk are ignored.
+- **Output version:** next `N` is **max numeric suffix** among
+  `output/thumbnail_vN.png` files, plus one — not “count of files + 1”. So if
+  `v1` and `v3` exist, the next file is `thumbnail_v4.png`.
+
+Helpers (stdlib-only, no API call):
+
+```bash
+python3 .claude/skills/thumbnail-generator/scripts/generate_image.py --pick-script
+python3 .claude/skills/thumbnail-generator/scripts/generate_image.py --pick-face
+python3 .claude/skills/thumbnail-generator/scripts/generate_image.py --next-version
+```
+
+### Dry-run and offline self-check
+
+Print the request shape (model, size, field names) without calling the API:
+
+```bash
+python3 .claude/skills/thumbnail-generator/scripts/generate_image.py \
+  --dry-run \
+  --face face/your-headshot.jpg \
+  --prompt "example prompt" \
+  --out output/thumbnail_v1.png
+```
+
+Run minimal offline self-checks:
+
+```bash
+python3 .claude/skills/thumbnail-generator/scripts/generate_image.py --self-test
+```
 
 ## Project structure
 
 ```
 thumbnail_brief_prompt.md   The prompt template used to analyze your script
-script/                     Drop your video script here
-face/                       Drop your headshot here
+script/                     Drop your video script here (.txt / .md)
+face/                       Drop your headshot here (common image types)
 output/                     Generated thumbnails land here (gitignored)
 .env.example                Template for your OpenAI API key
 .claude/skills/thumbnail-generator/
   SKILL.md                  Instructions Claude follows to run the pipeline
-  scripts/generate_image.py Calls the OpenAI image-edit API (stdlib only)
+  scripts/generate_image.py Calls the OpenAI image-edit API (stdlib only);
+                            also --dry-run / --self-test / pick & version helpers
 ```
 
 ## Troubleshooting
@@ -74,6 +109,11 @@ output/                     Generated thumbnails land here (gitignored)
 - **Auth error from the OpenAI API** — double-check `OPENAI_API_KEY` in `.env`.
 - **Permission/organization error** — your OpenAI org likely hasn't completed
   identity verification, which GPT Image models require.
+- **Response lacks `b64_json`** — `generate_image.py` now exits with the fields
+  present in `data[0]` and a short body preview; check model access / response
+  format rather than assuming a file was written.
+- **Wrong file picked** — confirm the intended script/face has a supported
+  extension and is newer than other candidates; `.gitkeep` is never selected.
 - **Layout doesn't match what you wanted** — since generation is native 16:9
   (no crop step), a bad layout means the prompt itself needs adjusting; describe
   the fix in absolute terms (e.g. "text no taller than 15% of frame height")
